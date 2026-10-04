@@ -1,0 +1,26 @@
+name: Manter ativo
+
+# O GitHub desliga workflows agendados de repositório público depois de 60 dias sem atividade no repositório.
+# Um commit por mês mantém a conferência do site ligada.
+on:
+  schedule:
+    - cron: "0 9 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  registrar:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Commit mensal
+        run: |
+          date -u +%Y-%m-%dT%H:%M:%SZ > ultima-atividade.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ultima-atividade.txt
+          git commit -m "Atividade mensal"
+          git push

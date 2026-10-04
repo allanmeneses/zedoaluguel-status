@@ -1,0 +1,34 @@
+name: Site no ar
+
+# A cada 5 minutos, confere se o Zé do Aluguel responde 200 em /health. Três tentativas com 30 s de intervalo
+# antes de falhar, para uma oscilação de rede não virar alarme. Falha de workflow agendado gera e-mail do GitHub.
+# O GitHub pode atrasar execuções agendadas em horários de pico.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Endereço a conferir (para testar o alarme com um endereço que falha)"
+        default: "https://zedoaluguel.com.br/health"
+
+permissions:
+  contents: read
+
+jobs:
+  conferir:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Conferir /health
+        env:
+          URL: ${{ inputs.url || 'https://zedoaluguel.com.br/health' }}
+        run: |
+          for i in 1 2 3; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$URL" || true)
+            echo "tentativa $i: $URL -> ${code:-sem resposta}"
+            if [ "$code" = "200" ]; then exit 0; fi
+            if [ "$i" -lt 3 ]; then sleep 30; fi
+          done
+          echo "::error::$URL não respondeu 200 em 3 tentativas. Veja o Container App zedoaluguel-web no Azure."
+          exit 1
