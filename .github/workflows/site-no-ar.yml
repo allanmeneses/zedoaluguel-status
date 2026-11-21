@@ -1,34 +1,28 @@
 name: Site no ar
 
-# A cada 5 minutos, confere se o Zé do Aluguel responde 200 em /health. Três tentativas com 30 s de intervalo
-# antes de falhar, para uma oscilação de rede não virar alarme. Falha de workflow agendado gera e-mail do GitHub.
-# O GitHub pode atrasar execuções agendadas em horários de pico.
+# O cron pede 5 minutos, mas o GitHub atrasa execucoes agendadas em repositorio publico
+# (hoje sai a cada 6 a 8 horas). Nao ligamos um laco longo neste fluxo: ver docs/custo-e-limites.md
+# e a regra de zero custo adicional, enquanto o minReplicas do Azure nao for confirmado.
 on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
-    inputs:
-      url:
-        description: "Endereço a conferir (para testar o alarme com um endereço que falha)"
-        default: "https://zedoaluguel.com.br/health"
 
 permissions:
   contents: read
+  issues: write
+  actions: read
 
 jobs:
   conferir:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
-      - name: Conferir /health
+      - uses: actions/checkout@v4
+      - name: Conferir /health e atualizar o alarme
         env:
-          URL: ${{ inputs.url || 'https://zedoaluguel.com.br/health' }}
-        run: |
-          for i in 1 2 3; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$URL" || true)
-            echo "tentativa $i: $URL -> ${code:-sem resposta}"
-            if [ "$code" = "200" ]; then exit 0; fi
-            if [ "$i" -lt 3 ]; then sleep 30; fi
-          done
-          echo "::error::$URL não respondeu 200 em 3 tentativas. Veja o Container App zedoaluguel-web no Azure."
-          exit 1
+          GH_TOKEN: ${{ github.token }}
+          MODO: producao
+          URL_PRINCIPAL: https://toctocaluguel.com.br/health
+          URL_ANTIGO: https://zedoaluguel.com.br/health
+        run: bash scripts/conferir-site.sh

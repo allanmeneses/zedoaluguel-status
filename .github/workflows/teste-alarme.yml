@@ -1,0 +1,25 @@
+name: Teste do alarme
+
+# Nao e agendado. Simula uma queda num endereco invalido, abre a issue de teste
+# na 2a falha e fecha na volta, sem alterar o alarme de producao.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  simular:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Simular queda e volta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODO: teste
+          URL_TESTE_FALHA: https://toctocaluguel.com.br/nao-existe
+          URL_PRINCIPAL: https://toctocaluguel.com.br/health
+          URL_ANTIGO: https://zedoaluguel.com.br/health
+        run: bash scripts/conferir-site.sh
