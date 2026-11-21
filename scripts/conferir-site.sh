@@ -46,8 +46,25 @@ garantir_label() {
 }
 
 issue_aberta() {
-  gh issue list --repo "$REPO" --label "$LABEL" --state open --json number,title \
-    --jq ".[] | select(.title==\"$TITULO\") | .number" | head -1
+  # Lista e API REST, com algumas tentativas: a lista pode atrasar logo apos criar.
+  local i n
+  for i in 1 2 3 4 5; do
+    n=$(gh issue list --repo "$REPO" --state open --limit 30 --json number,title,labels       --jq ".[] | select(.title==\"$TITULO\" and ([.labels[].name] | index(\"$LABEL\"))) | .number" | head -1 || true)
+    if [[ -z "$n" ]]; then
+      n=$(gh api "repos/${REPO}/issues?state=open&labels=${LABEL}&per_page=20"         --jq ".[] | select(.title==\"$TITULO\") | .number" 2>/dev/null | head -1 || true)
+    fi
+    if [[ -n "$n" ]]; then
+      echo "$n"
+      return 0
+    fi
+    sleep 2
+  done
+  return 0
+}
+
+estado_da_issue() {
+  local n="$1"
+  gh issue view "$n" --repo "$REPO" --json state --jq .state 2>/dev/null || true
 }
 
 numero_da_issue() {
@@ -75,8 +92,10 @@ abrir_alarme() {
 
 fechar_alarme() {
   local corpo="$1"
-  local n
-  n=$(issue_aberta)
+  local n="${2:-}"
+  if [[ -z "$n" ]]; then
+    n=$(issue_aberta)
+  fi
   if [[ -z "$n" ]]; then
     echo "Nenhum alarme aberto."
     return
@@ -139,17 +158,16 @@ if [[ "$MODO" == "teste" ]]; then
   fi
   criar_saida=$(abrir_alarme "$(resumo_falha "$URL_FALHA")")
   echo "$criar_saida"
-  n=$(issue_aberta)
+  n=$(echo "$criar_saida" | grep -oE 'issues/[0-9]+' | tail -1 | grep -oE '[0-9]+' || true)
   if [[ -z "$n" ]]; then
-    # A lista de issues pode atrasar um pouco logo apos criar.
-    sleep 3
     n=$(issue_aberta)
   fi
   if [[ -z "$n" ]]; then
-    n=$(echo "$criar_saida" | grep -oE 'issues/[0-9]+' | tail -1 | grep -oE '[0-9]+' || true)
-  fi
-  if [[ -z "$n" ]]; then
     echo "::error::O alarme de teste nao abriu na 2a falha."
+    exit 1
+  fi
+  if [[ "$(estado_da_issue "$n")" != "OPEN" ]]; then
+    echo "::error::A issue #$n nao ficou aberta apos a 2a falha."
     exit 1
   fi
   echo "ISSUE_TESTE=#$n"
@@ -163,10 +181,9 @@ if [[ "$MODO" == "teste" ]]; then
   if ! tentar "$ANTIGO"; then
     echo "::warning::$ANTIGO nao respondeu 200. O principal esta no ar; mesmo assim encerro o teste."
   fi
-  fechar_alarme "$(resumo_volta "$PRINCIPAL")"
+  fechar_alarme "$(resumo_volta "$PRINCIPAL")" "$n"
   sleep 2
-  n=$(issue_aberta)
-  if [[ -n "$n" ]]; then
+  if [[ "$(estado_da_issue "$n")" != "CLOSED" ]]; then
     echo "::error::O alarme de teste #$n nao fechou na volta."
     exit 1
   fi
