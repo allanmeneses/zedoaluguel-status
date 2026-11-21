@@ -191,51 +191,92 @@ if [[ "$MODO" == "teste" ]]; then
   exit 0
 fi
 
-# Producao: duas falhas seguidas exigem que a ultima execucao agendada tambem tenha falhado.
+# Producao: o alarme abre na 2a conferencia seguida que falhou (nesta execucao
+# ou carregando a conclusao da execucao anterior). Se o laco estiver ligado,
+# as conferencias se repetem a cada INTERVALO_SEGUNDOS ate LACO_MINUTOS.
 ultima_falhou=0
 wf="${GITHUB_WORKFLOW:-Site no ar}"
-last=$(gh run list --repo "$REPO" --workflow "$wf" --event schedule --status completed --limit 5 \
-  --json conclusion,databaseId,createdAt --jq '.[] | "\(.createdAt) \(.conclusion) \(.databaseId)"' 2>/dev/null || true)
+last=$(gh run list --repo "$REPO" --workflow "$wf" --status completed --limit 10 \
+  --json conclusion,databaseId,createdAt,event --jq '.[] | "\(.createdAt) \(.conclusion) \(.databaseId) \(.event)"' 2>/dev/null || true)
 # Ignora a execucao atual, se ja aparecer na lista.
 current="${GITHUB_RUN_ID:-}"
 prev=""
 while read -r line; do
   [[ -z "$line" ]] && continue
-  id="${line##* }"
+  id=$(echo "$line" | awk '{print $3}')
   [[ "$id" == "$current" ]] && continue
   prev="$line"
   break
 done <<< "$last"
 if [[ -n "$prev" ]]; then
-  echo "Ultima execucao agendada anterior: $prev"
+  echo "Ultima execucao anterior: $prev"
   conc=$(echo "$prev" | awk '{print $2}')
   if [[ "$conc" == "failure" || "$conc" == "timed_out" ]]; then
     ultima_falhou=1
   fi
 else
-  echo "Sem execucao agendada anterior."
+  echo "Sem execucao anterior."
 fi
 
-ok_p=1
-ok_a=1
-tentar "$PRINCIPAL" || ok_p=0
-tentar "$ANTIGO" || ok_a=0
+uma_conferencia() {
+  local ok_p=1 ok_a=1 falhou=""
+  tentar "$PRINCIPAL" || ok_p=0
+  tentar "$ANTIGO" || ok_a=0
 
-if [[ "$ok_p" -eq 1 && "$ok_a" -eq 1 ]]; then
-  fechar_alarme "$(resumo_volta "$PRINCIPAL")"
-  echo "Os dois enderecos responderam 200."
-  exit 0
+  if [[ "$ok_p" -eq 1 && "$ok_a" -eq 1 ]]; then
+    fechar_alarme "$(resumo_volta "$PRINCIPAL")"
+    echo "Os dois enderecos responderam 200."
+    ultima_falhou=0
+    return 0
+  fi
+
+  [[ "$ok_p" -eq 0 ]] && falhou="$PRINCIPAL"
+  [[ "$ok_a" -eq 0 ]] && falhou="${falhou:+$falhou e }$ANTIGO"
+
+  if [[ "$ultima_falhou" -eq 1 ]]; then
+    abrir_alarme "$(resumo_falha "$falhou")" >/dev/null
+    echo "::error::$falhou nao respondeu 200 (2a conferencia seguida)."
+    ultima_falhou=1
+    return 1
+  fi
+
+  echo "::error::$falhou nao respondeu 200 (1a falha; o alarme so abre na proxima se continuar fora)."
+  ultima_falhou=1
+  return 1
+}
+
+intervalo="${INTERVALO_SEGUNDOS:-0}"
+limite_minutos="${LACO_MINUTOS:-0}"
+saiu=0
+if uma_conferencia; then
+  saiu=0
+else
+  saiu=1
 fi
 
-falhou=""
-[[ "$ok_p" -eq 0 ]] && falhou="$PRINCIPAL"
-[[ "$ok_a" -eq 0 ]] && falhou="${falhou:+$falhou e }$ANTIGO"
-
-if [[ "$ultima_falhou" -eq 1 ]]; then
-  abrir_alarme "$(resumo_falha "$falhou")" >/dev/null
-  echo "::error::$falhou nao respondeu 200 (2a conferencia seguida)."
-  exit 1
+if [[ "$limite_minutos" -gt 0 && "$intervalo" -gt 0 ]]; then
+  inicio=$(date +%s)
+  fim=$((inicio + limite_minutos * 60))
+  n=1
+  echo "Laco ligado: intervalo ${intervalo}s, ate $(TZ=America/Sao_Paulo date -d "@$fim" '+%d/%m/%Y %H:%M:%S (Brasilia)' 2>/dev/null || date -u -d "@$fim" '+%Y-%m-%dT%H:%M:%SZ')."
+  while true; do
+    agora=$(date +%s)
+    proxima=$((agora + intervalo))
+    if [[ "$proxima" -ge "$fim" ]]; then
+      echo "Fim do laco apos $n conferencia(s)."
+      break
+    fi
+    espera=$((proxima - agora))
+    echo "Proxima conferencia em ${espera}s."
+    sleep "$espera"
+    n=$((n + 1))
+    echo "Conferencia $n."
+    if uma_conferencia; then
+      saiu=0
+    else
+      saiu=1
+    fi
+  done
 fi
 
-echo "::error::$falhou nao respondeu 200 (1a falha; o alarme so abre na proxima se continuar fora)."
-exit 1
+exit "$saiu"

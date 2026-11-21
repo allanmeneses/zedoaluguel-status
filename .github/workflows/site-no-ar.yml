@@ -1,12 +1,20 @@
 name: Site no ar
 
-# O cron pede 5 minutos, mas o GitHub atrasa execucoes agendadas em repositorio publico
-# (hoje sai a cada 6 a 8 horas). Nao ligamos um laco longo neste fluxo: ver docs/custo-e-limites.md
-# e a regra de zero custo adicional, enquanto o minReplicas do Azure nao for confirmado.
+# O cron pede inicio a cada 5 minutos, mas o GitHub atrasa execucoes agendadas
+# em repositorio publico. O laco cobre esse atraso: confere os /health a cada
+# 5 minutos enquanto o job roda (quase 6 horas, teto do runner). A concorrencia
+# impede dois lacos ao mesmo tempo; o proximo agendamento encosta no fim deste.
+# minReplicas=1 foi confirmado em 21/11/2026 (Brasilia): a conferencia nao cria
+# custo adicional no Azure. Os minutos do Actions seguem gratuitos enquanto
+# este repositorio for publico.
 on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+
+concurrency:
+  group: site-no-ar
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -16,7 +24,7 @@ permissions:
 jobs:
   conferir:
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
       - name: Conferir /health e atualizar o alarme
@@ -25,4 +33,6 @@ jobs:
           MODO: producao
           URL_PRINCIPAL: https://toctocaluguel.com.br/health
           URL_ANTIGO: https://zedoaluguel.com.br/health
+          LACO_MINUTOS: "345"
+          INTERVALO_SEGUNDOS: "300"
         run: bash scripts/conferir-site.sh

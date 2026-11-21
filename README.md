@@ -11,13 +11,13 @@ Cada endereço tem 3 tentativas, com 5 s entre elas. Resposta esperada: HTTP 200
 
 ## Alarme, sem repetir aviso
 
-Quando o mesmo endereço falha em 2 execuções seguidas, abre a issue **Site fora do ar**. Quando os dois endereços voltam a responder 200, a issue é fechada. O GitHub avisa o dono do repositório por e-mail e no aplicativo, de graça.
+Quando o mesmo endereço falha em 2 conferências seguidas, abre a issue **Site fora do ar**. Quando os dois endereços voltam a responder 200, a issue é fechada. O GitHub avisa o dono do repositório por e-mail e no aplicativo, de graça.
 
-## Frequência real
+## Frequência
 
-O workflow `Site no ar` está com cron `*/5 * * * *`. No plano gratuito de repositório público o GitHub atrasa esse agendamento; as execuções recentes saíram a cada 6 a 8 horas, não a cada 5 minutos. Isso já acontecia antes desta atualização.
+O workflow `Site no ar` permanece com cron `*/5 * * * *`. Em repositório público o GitHub costuma atrasar esse agendamento (antes desta atualização, as execuções saíam a cada 6 a 8 horas). Para cobrir o atraso, cada execução entra num laço: confere os /health a cada 5 minutos por quase 6 horas (teto do runner hospedado). Só um laço roda de cada vez; o próximo agendamento espera o atual terminar e começa em seguida.
 
-Não foi ligado um laço que fique 5 horas no ar e se reagende. Esse caminho usaria muitos minutos (ainda gratuitos neste repositório público), mas passaria a chamar o /health de produção dezenas de vezes por hora. Enquanto o `minReplicas` do Container App `zedoaluguel-web` não for lido no Azure, essa frequência fica desligada, para não impedir um eventual scale to zero nem criar custo novo. Detalhes em [docs/custo-e-limites.md](docs/custo-e-limites.md).
+O `minReplicas` do Container App `zedoaluguel-web` foi lido em 21/11/2026, 18:50 (horário de Brasília): valor 1 (e `maxReplicas` 1). O aplicativo já fica ligado. A conferência a cada 5 minutos não acorda réplica nova e não cria custo adicional no Azure. Os minutos do Actions continuam gratuitos enquanto este repositório for público. Detalhes em [docs/custo-e-limites.md](docs/custo-e-limites.md).
 
 O workflow `Manter ativo` faz um commit no dia 1 de cada mês, porque o GitHub desliga workflows agendados de repositório público depois de 60 dias sem atividade.
 
