@@ -114,6 +114,12 @@ TXT
 }
 
 if [[ "$MODO" == "teste" ]]; then
+  leftover=$(issue_aberta || true)
+  if [[ -n "$leftover" ]]; then
+    echo "Encerrando alarme de teste leftover #$leftover de uma execucao anterior."
+    gh issue close --repo "$REPO" "$leftover" --reason completed --comment "Encerrado para comecar um novo teste do alarme." >/dev/null
+    sleep 2
+  fi
   echo "== 1) Primeira falha (URL invalida, ainda sem alarme) =="
   URL_FALHA="${URL_TESTE_FALHA:-https://toctocaluguel.com.br/nao-existe}"
   if tentar "$URL_FALHA"; then
@@ -131,8 +137,17 @@ if [[ "$MODO" == "teste" ]]; then
     echo "::error::$URL_FALHA respondeu 200 na 2a tentativa."
     exit 1
   fi
-  abrir_alarme "$(resumo_falha "$URL_FALHA")" >/dev/null
+  criar_saida=$(abrir_alarme "$(resumo_falha "$URL_FALHA")")
+  echo "$criar_saida"
   n=$(issue_aberta)
+  if [[ -z "$n" ]]; then
+    # A lista de issues pode atrasar um pouco logo apos criar.
+    sleep 3
+    n=$(issue_aberta)
+  fi
+  if [[ -z "$n" ]]; then
+    n=$(echo "$criar_saida" | grep -oE 'issues/[0-9]+' | tail -1 | grep -oE '[0-9]+' || true)
+  fi
   if [[ -z "$n" ]]; then
     echo "::error::O alarme de teste nao abriu na 2a falha."
     exit 1
@@ -149,6 +164,7 @@ if [[ "$MODO" == "teste" ]]; then
     echo "::warning::$ANTIGO nao respondeu 200. O principal esta no ar; mesmo assim encerro o teste."
   fi
   fechar_alarme "$(resumo_volta "$PRINCIPAL")"
+  sleep 2
   n=$(issue_aberta)
   if [[ -n "$n" ]]; then
     echo "::error::O alarme de teste #$n nao fechou na volta."
